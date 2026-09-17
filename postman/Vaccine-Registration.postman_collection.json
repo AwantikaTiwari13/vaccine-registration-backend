@@ -1,0 +1,1225 @@
+{
+  "info": {
+    "_postman_id": "3b7c7ab1-923a-4f33-a8a3-b880f275ae07",
+    "name": "Vaccine Registration API",
+    "description": "Runo Backend Developer Assignment - I.\n\nImport the matching environment file and run the folders top to bottom.\nLogin requests save `userToken` / `adminToken`; slot and booking requests save `slotId`, `altSlotId` and `bookingId` automatically.\n\nIMPORTANT: the vaccination drive is fixed to November 2024. Every request sends an `x-mock-time` header (the `mockTime` variable) so the API can be exercised today. It is only honoured when the server runs with ALLOW_MOCK_TIME=true and NODE_ENV != production; in production the middleware is not mounted at all. Delete the header to use real time.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "No auth. Reports environment, drive configuration and whether mock time is enabled."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('drive configured', () => pm.expect(pm.response.json().data.drive.slotsPerDay).to.eql(14));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Auth",
+      "item": [
+        {
+          "name": "Register user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates a user. Phone and Aadhaar are unique. Password is bcrypt-hashed; Aadhaar comes back masked.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userName}}\",\n  \"phoneNumber\": \"{{userPhone}}\",\n  \"age\": 28,\n  \"pincode\": \"226001\",\n  \"aadharNo\": \"{{userAadhar}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data.user;",
+                  "pm.test('Aadhaar is masked', () => pm.expect(d.aadharNo).to.match(/^X{8}\\d{4}$/));",
+                  "pm.test('status starts at NONE', () => pm.expect(d.vaccinationStatus).to.eql('NONE'));",
+                  "pm.environment.set('userId', d.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register user - duplicate phone (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Expected to fail - demonstrates the unique phone-number constraint.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate Phone\",\n  \"phoneNumber\": \"{{userPhone}}\",\n  \"age\": 31,\n  \"pincode\": \"110001\",\n  \"aadharNo\": \"999988887777\",\n  \"password\": \"Password123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('DUPLICATE_KEY', () => pm.expect(pm.response.json().error.code).to.eql('DUPLICATE_KEY'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register user - validation errors (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Expected to fail - shows the field-level validation payload.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"A\",\n  \"phoneNumber\": \"12345\",\n  \"age\": 0,\n  \"pincode\": \"22\",\n  \"aadharNo\": \"1\",\n  \"password\": \"abc\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login user",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Saves the JWT into the `userToken` environment variable.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{userPhone}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const token = pm.response.json().data.token;",
+                  "pm.environment.set('userToken', token);",
+                  "pm.test('token returned', () => pm.expect(token).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login user - wrong password (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Expected to fail. The same message is returned for an unknown phone number, so the endpoint cannot be used to enumerate users.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{userPhone}}\",\n  \"password\": \"WrongPassword123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login admin",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/admin/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "admin",
+                "login"
+              ]
+            },
+            "description": "Admin accounts are created only by `npm run seed:admin`. There is no admin registration API.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"{{adminPhone}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('adminToken', pm.response.json().data.token);",
+                  "pm.test('role is ADMIN', () => pm.expect(pm.response.json().data.admin.role).to.eql('ADMIN'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. User - slots and bookings",
+      "item": [
+        {
+          "name": "Get available slots",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/slots/available?date={{date}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "slots",
+                "available"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{date}}"
+                }
+              ]
+            },
+            "description": "Returns slots on `date` that are inside the drive, have not started, and still have capacity - plus the dose this user is eligible for. Saves the first two slot ids."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('slots returned', () => pm.expect(d.slots.length).to.be.above(1));",
+                  "pm.environment.set('slotId', d.slots[0].id);",
+                  "pm.environment.set('altSlotId', d.slots[1].id);",
+                  "console.log('eligible dose:', d.eligibleDose);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get available slots - outside drive (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/slots/available?date=2024-12-05",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "slots",
+                "available"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2024-12-05"
+                }
+              ]
+            },
+            "description": "Expected to fail - the drive runs 2024-11-01 to 2024-11-30."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('DATE_OUTSIDE_DRIVE', () => pm.expect(pm.response.json().error.code).to.eql('DATE_OUTSIDE_DRIVE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Book first dose",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings"
+              ]
+            },
+            "description": "`doseNumber` is optional - omit it and the server books the only dose you are eligible for.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotId\": \"{{slotId}}\",\n  \"doseNumber\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const d = pm.response.json().data;",
+                  "pm.environment.set('bookingId', d.booking.id);",
+                  "pm.test('a dose was consumed', () => pm.expect(d.slot.availableDoses).to.be.below(10));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Book second dose (before first completes -> 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings"
+              ]
+            },
+            "description": "Expected to fail until the first dose slot has lapsed. To book a real second dose, set `mockTime` to an instant after the first slot's end time and send this request without `doseNumber`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotId\": \"{{altSlotId}}\",\n  \"doseNumber\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('FIRST_DOSE_NOT_COMPLETED', () => pm.expect(pm.response.json().error.code).to.eql('FIRST_DOSE_NOT_COMPLETED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List my bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings"
+              ]
+            },
+            "description": "The caller's own bookings, with the slot expanded."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get one booking",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings",
+                "{{bookingId}}"
+              ]
+            },
+            "description": "403 NOT_BOOKING_OWNER if the booking belongs to another user."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change booking slot",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings",
+                "{{bookingId}}"
+              ]
+            },
+            "description": "Allowed only while more than 24 hours remain until the currently registered slot. Exactly 24 hours is rejected. PUT works as an alias.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"slotId\": \"{{altSlotId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('old slot released', () => pm.expect(d.previousSlot.bookedCount).to.eql(0));",
+                  "pm.test('new slot reserved', () => pm.expect(d.newSlot.bookedCount).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get my profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Profile with masked Aadhaar, current vaccination status, the dose you may book next, and your bookings."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('no password hash', () => pm.expect(pm.response.text()).to.not.include('passwordHash'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Admin",
+      "item": [
+        {
+          "name": "List all users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Total registered users plus a paginated list. Aadhaar and password hashes are never returned."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('total present', () => pm.expect(pm.response.json().data).to.have.property('totalRegisteredUsers'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter users by age",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?age=28",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "age",
+                  "value": "28"
+                }
+              ]
+            },
+            "description": "Exact age. `minAge` and `maxAge` give an inclusive range instead."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter users by pincode",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?pincode=226001",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "pincode",
+                  "value": "226001"
+                }
+              ]
+            },
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter users by vaccination status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?vaccinationStatus=NONE",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "vaccinationStatus",
+                  "value": "NONE"
+                }
+              ]
+            },
+            "description": "One of NONE, FIRST_DOSE_COMPLETED, FULLY_VACCINATED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter users - combined + pagination",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users?age=28&pincode=226001&vaccinationStatus=NONE&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "age",
+                  "value": "28"
+                },
+                {
+                  "key": "pincode",
+                  "value": "226001"
+                },
+                {
+                  "key": "vaccinationStatus",
+                  "value": "NONE"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "All filters combine freely and are applied by MongoDB, not in Node."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Daily slot statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/slots?date={{date}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "slots"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "{{date}}"
+                }
+              ]
+            },
+            "description": "First-dose, second-dose and total registrations for the day, plus a per-slot breakdown with capacity and remaining doses."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data;",
+                  "pm.test('totals add up', () => pm.expect(d.firstDose + d.secondDose).to.eql(d.total));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin endpoint with a user token (403)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/admin/users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "admin",
+                "users"
+              ]
+            },
+            "description": "Expected to fail - role enforcement."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('INSUFFICIENT_ROLE', () => pm.expect(pm.response.json().error.code).to.eql('INSUFFICIENT_ROLE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Auth failure modes",
+      "item": [
+        {
+          "name": "No token (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Expected to fail with TOKEN_MISSING."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('TOKEN_MISSING', () => pm.expect(pm.response.json().error.code).to.eql('TOKEN_MISSING'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed token (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer not.a.real.token"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "me"
+              ]
+            },
+            "description": "Expected to fail with TOKEN_INVALID."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('TOKEN_INVALID', () => pm.expect(pm.response.json().error.code).to.eql('TOKEN_INVALID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown route (404)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "does-not-exist"
+              ]
+            },
+            "description": "Expected to fail with ROUTE_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed booking id (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              },
+              {
+                "key": "x-mock-time",
+                "value": "{{mockTime}}",
+                "description": "Only honoured when ALLOW_MOCK_TIME=true and NODE_ENV is not production. Remove for real-time behaviour."
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/not-an-object-id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "bookings",
+                "not-an-object-id"
+              ]
+            },
+            "description": "Expected to fail - malformed ObjectId is rejected before it reaches the database."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('VALIDATION_ERROR', () => pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
